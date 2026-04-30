@@ -2,10 +2,16 @@ EXENAME = main
 OBJS = main.o
 
 CXX = g++
-CXXFLAGS = -std=c++14 -stdlib=libc++ -lssl -lcrypto -Wall -lboost_system
+CXXFLAGS = -std=c++14 -Wall
+LDFLAGS = -lssl -lcrypto -lboost_system
 
-main.o: main.cpp
-	$(CXX) $(CXXFLAGS) main.cpp -o $(OBJS)
+all: $(EXENAME)
+
+$(EXENAME): $(OBJS)
+	$(CXX) $(OBJS) $(LDFLAGS) -o $(EXENAME)
+
+%.o: %.cpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 clean:
 	-rm -f *.o $(EXENAME)
