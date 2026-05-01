@@ -82,3 +82,38 @@ __device__ void sha256_device(const unsigned char* input, int len, unsigned char
     msg[padded_len - 8] = (unsigned char)(bitlen >> 56);
 
     //processing each 64 byte chunk together 
+
+    // Process each 64-byte chunk
+    for (int chunk = 0; chunk < padded_len; chunk += 64) {
+        uint32_t W[64];
+
+        // take first 16 words from chunk
+        for (int i = 0; i < 16; i++) {
+            W[i] = ((uint32_t)msg[chunk + i*4    ] << 24) |
+                   ((uint32_t)msg[chunk + i*4 + 1] << 16) |
+                   ((uint32_t)msg[chunk + i*4 + 2] <<  8) |
+                   ((uint32_t)msg[chunk + i*4 + 3]);
+        }
+
+        // remaining 48 words: derived from previous words
+        for (int i = 16; i < 64; i++) {
+            W[i] = SIG1(W[i-2]) + W[i-7] + SIG0(W[i-15]) + W[i-16];
+        }
+
+        // sha256 logic: 64 rounds of mixing
+        uint32_t a = h0, b = h1, c = h2, d = h3,
+                 e = h4, f = h5, g = h6, h = h7;
+
+        for (int i = 0; i < 64; i++) {
+            uint32_t T1 = h + EP1(e) + CH(e,f,g) + K[i] + W[i];
+            uint32_t T2 = EP0(a) + MAJ(a,b,c);
+            h = g; g = f; f = e; e = d + T1;
+            d = c; c = b; b = a; a = T1 + T2;
+        }
+
+        // add compressed chunk to current hash value
+        h0 += a; h1 += b; h2 += c; h3 += d;
+        h4 += e; h5 += f; h6 += g; h7 += h;
+    }
+    // produce final hash value (big-endian)
+}
