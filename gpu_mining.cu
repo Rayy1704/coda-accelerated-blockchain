@@ -116,4 +116,63 @@ __device__ void sha256_device(const unsigned char* input, int len, unsigned char
         h4 += e; h5 += f; h6 += g; h7 += h;
     }
     // produce final hash value (big-endian)
+    // ── Process each 64-byte chunk
+    for (int chunk = 0; chunk < padded_len; chunk += 64) {
+
+        // build message schedule W[0..63]
+        uint32_t W[64];
+
+        // first 16 words: straight from the message chunk
+        for (int i = 0; i < 16; i++) {
+            W[i] = ((uint32_t)msg[chunk + i*4    ] << 24) |
+                   ((uint32_t)msg[chunk + i*4 + 1] << 16) |
+                   ((uint32_t)msg[chunk + i*4 + 2] <<  8) |
+                   ((uint32_t)msg[chunk + i*4 + 3]);
+        }
+
+        // remaining 48 words: derived from previous words
+        for (int i = 16; i < 64; i++) {
+            W[i] = SIG1(W[i-2]) + W[i-7] + SIG0(W[i-15]) + W[i-16];
+        }
+
+        // ── Compression — the core of SHA-256
+        uint32_t a = h0, b = h1, c = h2, d = h3,
+                 e = h4, f = h5, g = h6, h = h7;
+
+        for (int i = 0; i < 64; i++) {
+            uint32_t T1 = h + EP1(e) + CH(e,f,g) + K[i] + W[i];
+            uint32_t T2 = EP0(a) + MAJ(a,b,c);
+            h = g; g = f; f = e; e = d + T1;
+            d = c; c = b; b = a; a = T1 + T2;
+        }
+
+        // ── Add compressed chunk to current hash
+        h0 += a; h1 += b; h2 += c; h3 += d;
+        h4 += e; h5 += f; h6 += g; h7 += h;
+    }
+    // ── Produce final 32-byte hash (big-endian)
+    output[ 0] = (h0 >> 24) & 0xFF; output[ 1] = (h0 >> 16) & 0xFF;
+    output[ 2] = (h0 >>  8) & 0xFF; output[ 3] = (h0)       & 0xFF;
+    output[ 4] = (h1 >> 24) & 0xFF; output[ 5] = (h1 >> 16) & 0xFF;
+    output[ 6] = (h1 >>  8) & 0xFF; output[ 7] = (h1)       & 0xFF;
+    output[ 8] = (h2 >> 24) & 0xFF; output[ 9] = (h2 >> 16) & 0xFF;
+    output[10] = (h2 >>  8) & 0xFF; output[11] = (h2)       & 0xFF;
+    output[12] = (h3 >> 24) & 0xFF; output[13] = (h3 >> 16) & 0xFF;
+    output[14] = (h3 >>  8) & 0xFF; output[15] = (h3)       & 0xFF;
+    output[16] = (h4 >> 24) & 0xFF; output[17] = (h4 >> 16) & 0xFF;
+    output[18] = (h4 >>  8) & 0xFF; output[19] = (h4)       & 0xFF;
+    output[20] = (h5 >> 24) & 0xFF; output[21] = (h5 >> 16) & 0xFF;
+    output[22] = (h5 >>  8) & 0xFF; output[23] = (h5)       & 0xFF;
+    output[24] = (h6 >> 24) & 0xFF; output[25] = (h6 >> 16) & 0xFF;
+    output[26] = (h6 >>  8) & 0xFF; output[27] = (h6)       & 0xFF;
+    output[28] = (h7 >> 24) & 0xFF; output[29] = (h7 >> 16) & 0xFF;
+    output[30] = (h7 >>  8) & 0xFF; output[31] = (h7)       & 0xFF;
+}
+
+__device__ bool hasLeadingZeros(unsigned char* hash) {
+    int fullBytes = 6;
+    for (int i = 0; i < fullBytes; i++) {
+        if (hash[i] != 0x00) return false;
+    }
+    return true;
 }
