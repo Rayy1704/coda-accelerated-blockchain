@@ -188,4 +188,17 @@ void mineKernel(const unsigned char* header,int headerLen,unsigned int batchStar
     input[headerLen + 1] = (nonce >> 16) & 0xFF;
     input[headerLen + 2] = (nonce >>  8) & 0xFF;
     input[headerLen + 3] = (nonce      ) & 0xFF;
+      
+    unsigned char hash[32] // buffer to hold hash
+
+    sha256_device(input, headerLen + 4, hash);// computer hash using self defined function sha256_hash()
+     // check if hash is valid 
+     if (hasLeadingZeros(hash)) {
+        if (atomicCAS(found, 0, 1) == 0) {
+            *resultNonce = nonce;
+        }
+    }
+} 
+
+
   
