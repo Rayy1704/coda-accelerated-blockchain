@@ -184,4 +184,8 @@ void mineKernel(const unsigned char* header,int headerLen,unsigned int batchStar
     unsigned int nonce = batchStart + blockIdx.x * blockDim.x + threadIdx.x; // calculate nonce
     unsigned char input[128]; // buffer for header + nonce and padding
     memcpy(input, header, headerLen); // copy header into buffer]
-}
+    input[headerLen    ] = (nonce >> 24) & 0xFF; //copy nonce into buffer in big endian format
+    input[headerLen + 1] = (nonce >> 16) & 0xFF;
+    input[headerLen + 2] = (nonce >>  8) & 0xFF;
+    input[headerLen + 3] = (nonce      ) & 0xFF;
+  
