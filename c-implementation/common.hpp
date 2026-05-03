@@ -21,9 +21,15 @@ void print_hex(const char *label, const uint8_t *v, size_t len) {
 
 string getMerkleRoot(const vector<string> &merkle) {
     clock_t start = clock();
-    if (merkle.empty())
+    if (merkle.empty()){
+        clock_t end = clock();
+        double elapsedSeconds = static_cast<double>(end - start) / CLOCKS_PER_SEC;
+        std::cout << "GPU Merkle tree calculation time: " << elapsedSeconds << " s" << endl;
         return "";
-    else if (merkle.size() == 1){
+    }else if (merkle.size() == 1){
+        clock_t end = clock();
+        double elapsedSeconds = static_cast<double>(end - start) / CLOCKS_PER_SEC;
+        std::cout << "GPU Merkle tree calculation time: " << elapsedSeconds << " s" << endl;
         return sha256(merkle[0]);
     }
 

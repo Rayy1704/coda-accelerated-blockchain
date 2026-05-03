@@ -63,7 +63,7 @@ std :: string getMerkleRootGPU(std::vector <std::string>& merkle){ // function d
     cudaEventSynchronize(stop);
     float ms;
     cudaEventElapsedTime(&ms, start, stop);
-    printf("GPU Merkle tree calculation time: %.2f s\n", ms / 1000.0f);
+    printf("\nGPU Merkle tree calculation time: %.5f s\n", ms / 1000.0f);
 
     unsigned char h_merkle_root[32];
     CUDA_CHECK_STR(cudaMemcpy(h_merkle_root, d_hashes, 32, cudaMemcpyDeviceToHost)); // copy the final merkle root back to the host
