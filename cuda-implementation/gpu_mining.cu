@@ -1,10 +1,10 @@
 #include "gpu_mining.h"
 #include <cuda_runtime.h>
-#include <sha256_gpu.h>
 #include <stdio.h>
 #include <string>
 #include <stdint.h>
 #include <utility> 
+#include "sha256_gpu.h"
 #include "hash.hpp"
 
 
