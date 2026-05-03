@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <utility> 
 #include "hash.hpp"
+
 // helper macros for sha-256
 #define ROTR(x, n)  (((x) >> (n)) | ((x) << (32 - (n))))
 #define CH(x, y, z) (((x) & (y)) ^ (~(x) & (z)))
@@ -137,31 +138,42 @@ __device__ int uintToAscii(unsigned int val, char* buf) {
 __global__ 
 void mineKernel(const unsigned char* header,int headerLen,unsigned int batchStart,unsigned int* resultNonce,int* found){
     if (*found) return; // already found hash, skip work
-    unsigned int nonce = batchStart + blockIdx.x * blockDim.x + threadIdx.x; // calculate nonce
+    unsigned int og_nonce = batchStart + blockIdx.x * blockDim.x + threadIdx.x; // calculate nonce
     unsigned char input[256]; // buffer for header + nonce and padding
     memcpy(input, header, headerLen); // copy header into buffer]
-    char nonceStr[12];
-    int nonceLen = uintToAscii(nonce, nonceStr);
-    
-    // Copy the ASCII digits into the input buffer
-    for(int i = 0; i < nonceLen; i++) {
-        input[headerLen + i] = nonceStr[i];
+    unsigned int nonce= og_nonce;
+    unsigned int n = nonce;
+    int nonceLen = 0;
+    while(n!=0){
+        n=n/10;
+        nonceLen++;
     }
-      
-    unsigned char hash[32]; // buffer to hold hash
+    int digit;
+    for(int i = nonceLen-1; i >= 0; i--) {
+        digit= nonce % 10;
+        nonce = nonce / 10;
+        input[headerLen + i] = digit + '0'; // append nonce string to buffer after header   
+    }
     int totalLen = headerLen + nonceLen;
+
+    unsigned char hash[32]; // buffer to hold hash
 
     sha256_device(input, totalLen, hash);// computer hash using self defined function sha256_hash()
      
           // check if hash is valid 
      if (hasLeadingZeros(hash)) {
-        printf("[DEBUG] GPU Input Array  : '");
+        if (atomicCAS(found, 0, 1) == 0) {
+            *resultNonce = og_nonce;
+            printf("gpu nonce :%u", *resultNonce);
+            printf("[DEBUG] GPU Input Array  : '");
         for(int i = 0; i < totalLen; i++) {
             printf("%c", input[i]);
         }
+        printf("\n[DEBUG] GPU Hash : '");
+        for(int i = 0; i < 32; i++) {
+            printf("%02x", hash[i]);
+        }
         printf("'\n");
-        if (atomicCAS(found, 0, 1) == 0) {
-            *resultNonce = nonce;
         }
     }
 } 
@@ -171,12 +183,18 @@ std::pair <std::string,std::string> findHashGPU(char * header){
     unsigned char *d_header; // creating device pointers for global memory in device
     unsigned int *d_resultNonce;
     int *d_found;
-    cudaMalloc(&d_header, headerLen + 1); // allocate memory on device for header, result nonce and found flag
-    cudaMalloc(&d_resultNonce, sizeof(unsigned int));
-    cudaMalloc(&d_found, sizeof(int));
-    cudaMemcpy(d_header, header, headerLen + 1, cudaMemcpyHostToDevice); // copy header from host to device
-    cudaMemset(d_resultNonce, 0, sizeof(unsigned int));
-    cudaMemset(d_found, 0, sizeof(int));
+    
+    // Allocate device memory with error checking
+    CUDA_CHECK(cudaMalloc(&d_header, headerLen));
+    CUDA_CHECK(cudaMalloc(&d_resultNonce, sizeof(unsigned int)));
+    CUDA_CHECK(cudaMalloc(&d_found, sizeof(int)));
+    
+    // Copy header to device with error checking
+    CUDA_CHECK(cudaMemcpy(d_header, header, headerLen, cudaMemcpyHostToDevice));
+    
+    // Initialize device memory with error checking
+    CUDA_CHECK(cudaMemset(d_resultNonce, 0, sizeof(unsigned int)));
+    CUDA_CHECK(cudaMemset(d_found, 0, sizeof(int)));
 
     const int threadsPerBlock = 256;
     const int blocks = 4096; // calculate number of blocks needed to cover entire nonce space
@@ -184,27 +202,37 @@ std::pair <std::string,std::string> findHashGPU(char * header){
     int h_found=0;
     dim3 grid(blocks);
     dim3 block(threadsPerBlock);
+    
     while(!h_found){
         printf("launching kernel with batch starting nonce: %u\n", batchStart);
         mineKernel<<<grid, block>>>(d_header, headerLen, batchStart, d_resultNonce, d_found);
-        cudaDeviceSynchronize();
-        cudaMemcpy(&h_found, d_found, sizeof(int), cudaMemcpyDeviceToHost);
+        
+        // Check for kernel launch errors
+        CUDA_CHECK_KERNEL();
+        
+        // Synchronize device and check for errors
+        CUDA_CHECK(cudaDeviceSynchronize());
+        
+        // Copy result back to host with error checking
+        CUDA_CHECK(cudaMemcpy(&h_found, d_found, sizeof(int), cudaMemcpyDeviceToHost));
         batchStart += blocks * threadsPerBlock;
     }
+    
     //get winning nonce back to host
     unsigned int h_nonce;
-    cudaMemcpy(&h_nonce, d_resultNonce, sizeof(unsigned int), cudaMemcpyDeviceToHost);
+    CUDA_CHECK(cudaMemcpy(&h_nonce, d_resultNonce, sizeof(unsigned int), cudaMemcpyDeviceToHost));
+    
     //get the hash using cpu funciton to avoid overhead
-
     std::string finalInputStr = std::string(header) + std::to_string(h_nonce);
-    // ADD THIS LINE:
     printf("\n[DEBUG] CPU Input String : '%s'\n", finalInputStr.c_str());
     std::string safeHash = sha256(finalInputStr);  
     std::string safeNonce = std::to_string(h_nonce);
-
-    cudaFree(d_header);
-    cudaFree(d_resultNonce);
-    cudaFree(d_found);
+    printf("[DEBUG] CPU Hash : '%s'\n", safeHash.c_str());
+    printf("[DEBUG] CPU hash hard coded : '%s'\n", (sha256("000000000000000440346916553ce530e69235e945b5278abe48d98cd162ec8c62a02eb2c9e30e011311").c_str()));
+    // Free device memory with error checking
+    CUDA_CHECK(cudaFree(d_header));
+    CUDA_CHECK(cudaFree(d_resultNonce));
+    CUDA_CHECK(cudaFree(d_found));
     
     return std::make_pair(safeHash, safeNonce);
 }
