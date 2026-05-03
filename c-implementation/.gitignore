@@ -5,3 +5,5 @@ main
 .DS_Store
 **/.DS_Store
 auto_mine.sh
+c-implementation/main
+c-implementation/main.o
