@@ -16,6 +16,7 @@ SRCS_CU  = gpu_mining.cu
 SHA_CU   = sha256_gpu.cu
 OBJS     = main.o gpu_mining.o sha256_gpu.o
 HDRS     = gpu_mining.h sha256_gpu.h
+HDRS    += cuda_error_check.h
 
 .PHONY: all clean
 
