@@ -11,6 +11,7 @@
 #include "common.hpp"
 #include "BlockChain.hpp"
 #include "requests.hpp"
+#include "gpu_merkle.h"
 
 #include "json.hh"
 using json = nlohmann::json;
@@ -184,7 +185,7 @@ int main() {
                     continue;
                 }
                 // mine for the has
-                string header= to_string(bc.getNumOfBlocks()) + bc.getLatestBlockHash() + getMerkleRoot(v);
+                string header= to_string(bc.getNumOfBlocks()) + bc.getLatestBlockHash() + getMerkleRootGPU(v);
                 auto pair = findHashGPU(const_cast<char*>(header.c_str()));
                 // add the block to the blockchain
                 bc.addBlock(bc.getNumOfBlocks(),bc.getLatestBlockHash(),pair.first,pair.second,v );
