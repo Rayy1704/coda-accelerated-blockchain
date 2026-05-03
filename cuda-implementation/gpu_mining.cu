@@ -135,26 +135,34 @@ __device__ int uintToAscii(unsigned int val, char* buf) {
     }
     return len;
 }
-__global__ 
+__global__ __launch_bounds__(256)
 void mineKernel(const unsigned char* header,int headerLen,unsigned int batchStart,unsigned int* resultNonce,int* found){
-    if (*found) return; // already found hash, skip work
+    if (__builtin_expect(*found, 0)) return; // already found hash, skip work
     unsigned int og_nonce = batchStart + blockIdx.x * blockDim.x + threadIdx.x; // calculate nonce
     unsigned char input[256]; // buffer for header + nonce and padding
     memcpy(input, header, headerLen); // copy header into buffer]
+    int totalLen;
     unsigned int nonce= og_nonce;
     unsigned int n = nonce;
     int nonceLen = 0;
-    while(n!=0){
-        n=n/10;
-        nonceLen++;
+    if (og_nonce == 0) {
+        input[headerLen] = '0';
+         totalLen= headerLen + 1;
+    } else {
+        while(n!=0){
+            n=n/10;
+            nonceLen++;
+        }
+        int digit;
+        for(int i = nonceLen-1; i >= 0; i--) {
+            digit= nonce % 10;
+            nonce = nonce / 10;
+            input[headerLen + i] = digit + '0'; // append nonce string to buffer after header   
+        }
+        totalLen = headerLen + nonceLen;
     }
-    int digit;
-    for(int i = nonceLen-1; i >= 0; i--) {
-        digit= nonce % 10;
-        nonce = nonce / 10;
-        input[headerLen + i] = digit + '0'; // append nonce string to buffer after header   
-    }
-    int totalLen = headerLen + nonceLen;
+    
+    
 
     unsigned char hash[32]; // buffer to hold hash
 
@@ -164,16 +172,6 @@ void mineKernel(const unsigned char* header,int headerLen,unsigned int batchStar
      if (hasLeadingZeros(hash)) {
         if (atomicCAS(found, 0, 1) == 0) {
             *resultNonce = og_nonce;
-            printf("gpu nonce :%u", *resultNonce);
-            printf("[DEBUG] GPU Input Array  : '");
-        for(int i = 0; i < totalLen; i++) {
-            printf("%c", input[i]);
-        }
-        printf("\n[DEBUG] GPU Hash : '");
-        for(int i = 0; i < 32; i++) {
-            printf("%02x", hash[i]);
-        }
-        printf("'\n");
         }
     }
 } 
@@ -185,7 +183,7 @@ std::pair <std::string,std::string> findHashGPU(char * header){
     int *d_found;
     
     // Allocate device memory with error checking
-    CUDA_CHECK(cudaMalloc(&d_header, headerLen));
+    CUDA_CHECK(cudaMalloc(&d_header, headerLen+1)); // +1 for null terminator
     CUDA_CHECK(cudaMalloc(&d_resultNonce, sizeof(unsigned int)));
     CUDA_CHECK(cudaMalloc(&d_found, sizeof(int)));
     
@@ -197,15 +195,17 @@ std::pair <std::string,std::string> findHashGPU(char * header){
     CUDA_CHECK(cudaMemset(d_found, 0, sizeof(int)));
 
     const int threadsPerBlock = 256;
-    const int blocks = 4096; // calculate number of blocks needed to cover entire nonce space
+    const int blocks = 8192; 
     unsigned int batchStart=0;
     int h_found=0;
     dim3 grid(blocks);
     dim3 block(threadsPerBlock);
-    
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+    cudaEventRecord(start);
     while(!h_found){
-        printf("launching kernel with batch starting nonce: %u\n", batchStart);
-        mineKernel<<<grid, block>>>(d_header, headerLen, batchStart, d_resultNonce, d_found);
+            mineKernel<<<grid, block>>>(d_header, headerLen, batchStart, d_resultNonce, d_found);
         
         // Check for kernel launch errors
         CUDA_CHECK_KERNEL();
@@ -217,18 +217,19 @@ std::pair <std::string,std::string> findHashGPU(char * header){
         CUDA_CHECK(cudaMemcpy(&h_found, d_found, sizeof(int), cudaMemcpyDeviceToHost));
         batchStart += blocks * threadsPerBlock;
     }
-    
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    float ms;
+    cudaEventElapsedTime(&ms, start, stop);
+    printf("GPU mining time: %.2f ms\n", ms);
     //get winning nonce back to host
     unsigned int h_nonce;
     CUDA_CHECK(cudaMemcpy(&h_nonce, d_resultNonce, sizeof(unsigned int), cudaMemcpyDeviceToHost));
     
     //get the hash using cpu funciton to avoid overhead
     std::string finalInputStr = std::string(header) + std::to_string(h_nonce);
-    printf("\n[DEBUG] CPU Input String : '%s'\n", finalInputStr.c_str());
     std::string safeHash = sha256(finalInputStr);  
     std::string safeNonce = std::to_string(h_nonce);
-    printf("[DEBUG] CPU Hash : '%s'\n", safeHash.c_str());
-    printf("[DEBUG] CPU hash hard coded : '%s'\n", (sha256("000000000000000440346916553ce530e69235e945b5278abe48d98cd162ec8c62a02eb2c9e30e011311").c_str()));
     // Free device memory with error checking
     CUDA_CHECK(cudaFree(d_header));
     CUDA_CHECK(cudaFree(d_resultNonce));
